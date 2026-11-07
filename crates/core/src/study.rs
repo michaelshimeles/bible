@@ -1515,7 +1515,7 @@ impl StudyStore {
         };
         self.transaction(|s| {
             for f in overlapping {
-                s.forget_passage(f)?;
+                s.retire_overlap_loser(f)?;
             }
             s.put_memorised(&m)
         })?;
@@ -1729,7 +1729,7 @@ impl StudyStore {
             .map(|o| o.first)
             .collect();
         for f in overlapping {
-            self.forget_passage(f)?;
+            self.retire_overlap_loser(f)?;
         }
         Ok(())
     }
@@ -1758,10 +1758,27 @@ impl StudyStore {
                 }
             }
             let Some(first) = loser else { break };
-            self.forget_passage(first)?;
+            self.retire_overlap_loser(first)?;
             n += 1;
         }
         Ok(n)
+    }
+
+    /// Forgets the passage at `first` because an overlapping one replaced it. The tombstone is stamped
+    /// just after the losing version (its time, its device with a suffix) rather than now, so it
+    /// deletes only that version: a later replacement at the same verse, made anywhere, still
+    /// wins over it. Every device that resolves the same overlap writes the same tombstone.
+    fn retire_overlap_loser(&mut self, first: VerseRef) -> Result<()> {
+        let Some(loser) = self.memory_revs.get(&first.key()).map(|r| r.stamp.clone()) else {
+            return self.forget_passage(first);
+        };
+        let rev = Rev { stamp: Stamp::new(loser.at, format!("{}~", loser.device)), seq: self.next_seq() };
+        let (last, translation) = match self.memory.get(&first.key()) {
+            Some(m) => (m.last.verse, m.translation.clone()),
+            None => return Ok(()),
+        };
+        self.store_memorised(first, None, rev)?;
+        self.forget_reviews_matching(first, last, &translation)
     }
 
     /// Rebuilds a live passage's schedule from its recalls, so two devices that each reviewed it
@@ -1886,8 +1903,21 @@ impl StudyStore {
                 })
                 .collect(),
             deleted: Changes::default(),
+            waiting_reviews: Vec::new(),
         };
         let mut deleted = self.changes_since(0, false);
+        // Recalls kept for a passage that hasn't arrived from another device yet: a backup
+        // carries them too, or restoring it would rebuild that passage from part of its log.
+        if include.history {
+            doc.waiting_reviews = deleted
+                .memory_reviews
+                .iter()
+                .filter(|c| {
+                    !c.deleted && verse_of(&c.verse).is_some_and(|v| !self.memory.contains_key(&v.key()))
+                })
+                .cloned()
+                .collect();
+        }
         deleted.highlights.retain(|c| c.deleted && include.highlights);
         deleted.notes.retain(|c| c.deleted && include.notes);
         deleted.bookmarks.retain(|c| c.deleted && include.bookmarks);
@@ -2276,6 +2306,7 @@ impl StudyStore {
         changes.plan_reads.extend(d.plan_reads.iter().filter(|c| c.deleted).cloned());
         changes.memory.extend(d.memory.iter().filter(|c| c.deleted).cloned());
         changes.memory_reviews.extend(d.memory_reviews.iter().filter(|c| c.deleted).cloned());
+        changes.memory_reviews.extend(doc.waiting_reviews.iter().filter(|c| !c.deleted).cloned());
         Ok(changes)
     }
 
@@ -2302,6 +2333,11 @@ impl StudyStore {
             passages.sort();
             for first in passages {
                 s.forget_passage(first)?;
+            }
+            // Recalls still waiting for their passage to arrive from another device.
+            let waiting: Vec<VerseRef> = s.reviews.keys().filter_map(|&k| VerseRef::from_key(k)).collect();
+            for first in waiting {
+                s.forget_reviews(first)?;
             }
             let mut with_copies: Vec<u32> = s.conflicts.keys().map(|(k, _)| *k).collect();
             with_copies.dedup();
@@ -2764,11 +2800,45 @@ impl StudyStore {
             let Some(first) = verse_of(&c.verse) else { continue };
             let k = first.key();
             let local = self.memory_revs.get(&k).map(|r| (r.stamp.clone(), self.memory.contains_key(&k)));
+            // A backup's passage replaces the one here even when this one changed since, so
+            // restoring it brings back its range, schedule and log (sync stays newest-wins).
+            // Recalls here that the backup doesn't have belong to the version it replaces.
+            let replace = mode == MergeMode::Import && !c.deleted;
+            let stale: Vec<LoggedReview> = if replace {
+                let keep: HashSet<String> = changes
+                    .memory_reviews
+                    .iter()
+                    .filter(|r| !r.deleted && verse_of(&r.verse) == Some(first))
+                    .filter_map(|r| Grade::from_name(&r.grade).map(|g| assigned_review_id(&r.id, r.at, g)))
+                    .collect();
+                self.reviews
+                    .get(&k)
+                    .into_iter()
+                    .flatten()
+                    .filter(|r| !keep.contains(&r.id))
+                    .cloned()
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            let differs = self.memory.get(&k).is_some_and(|m| {
+                m.last.verse != c.last_verse
+                    || m.translation != c.translation
+                    || m.schedule.due != c.due
+                    || m.schedule.reps != c.reps
+                    || m.schedule.lapses != c.lapses
+                    || m.schedule.last_review != c.last_review
+            });
             let rev = match lww(local.as_ref().map(|(s, l)| (s, *l)), (&c.stamp, !c.deleted), mode) {
+                Pick::Local if replace && (differs || !stale.is_empty()) => self.next_rev(),
                 Pick::Local => continue,
                 Pick::Remote => Rev { stamp: c.stamp.clone(), seq: self.next_seq() },
                 Pick::Revive => self.next_rev(),
             };
+            for logged in stale {
+                let rev = self.next_rev();
+                self.store_review(first, logged, false, rev)?;
+            }
             let created = match self.memory.get(&k).map(|m| m.created) {
                 Some(l) if l > 0 && (c.created == 0 || l < c.created) => l,
                 _ => c.created,
@@ -2951,6 +3021,10 @@ struct ExportDoc {
     /// ignores them).
     #[serde(default, skip_serializing_if = "Changes::is_empty")]
     deleted: Changes,
+    /// Recalls of passages that haven't arrived from another device yet (sync keeps them until
+    /// their passage does), when the export includes history.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    waiting_reviews: Vec<MemoryReviewChange>,
 }
 
 /// A passage being memorised: verses `verse..=last_verse` of one chapter.
@@ -4636,6 +4710,93 @@ mod sync_tests {
         assert!(s.reviews(v(16)).is_empty());
         drop(s);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_overlap_cleanup_spares_a_later_replacement() {
+        // A, B and C share John 3:16–18. Offline, B memorises 17–19 and C narrows 16–18 to 16.
+        let (mut a, clock_a) = device("aaaa", T0);
+        let (mut b, clock_b) = device("bbbb", T0);
+        let (mut c, clock_c) = device("cccc", T0);
+        a.memorise(v(16), v(18), "kjv").unwrap();
+        sync(&a, &mut b);
+        sync(&a, &mut c);
+        later(&clock_c, 10);
+        c.memorise(v(16), v(16), "kjv").unwrap();
+        later(&clock_b, 20);
+        b.memorise(v(17), v(19), "kjv").unwrap();
+        // A hears from B first, much later, then from C.
+        later(&clock_a, 1_000);
+        sync(&b, &mut a);
+        assert!(a.memorised_at(v(16)).is_none());
+        sync(&c, &mut a);
+        sync(&a, &mut b);
+        sync(&a, &mut c);
+        sync(&c, &mut b);
+        sync(&b, &mut c);
+        for s in [&a, &b, &c] {
+            let p = s.memorised_at(v(16)).expect("C's verse 16 fits beside 17–19");
+            assert_eq!((p.first, p.last), (v(16), v(16)));
+            let q = s.memorised_at(v(18)).unwrap();
+            assert_eq!((q.first, q.last), (v(17), v(19)));
+        }
+    }
+
+    #[test]
+    fn a_backup_replaces_a_newer_passage_and_its_recalls() {
+        let (mut a, clock) = device("aaaa", T0);
+        a.memorise(v(16), v(17), "kjv").unwrap();
+        a.review(v(16), Grade::Good, a.now_s()).unwrap();
+        let saved = a.memorised_at(v(16)).cloned().unwrap();
+        let backup = a.export_json_with("KJV", |_| None, Include::EVERYTHING).unwrap();
+        // After the backup: another recall, and the same range in another translation.
+        later(&clock, 86_400_000);
+        a.review(v(16), Grade::Again, a.now_s()).unwrap();
+        assert_eq!(a.reviews(v(16)).len(), 2);
+        later(&clock, 10);
+        a.memorise(v(16), v(18), "bsb").unwrap();
+        a.review(v(16), Grade::Easy, a.now_s()).unwrap();
+        a.import_json(&backup).unwrap();
+        let m = a.memorised_at(v(16)).cloned().unwrap();
+        assert_eq!((m.last, m.translation.as_str()), (v(17), "kjv"), "the backup's passage wins");
+        assert_eq!(m.schedule, saved.schedule, "with the backup's schedule");
+        assert_eq!(a.reviews(v(16)).len(), 1, "and only the backup's recalls");
+        // Importing the same file again changes nothing.
+        let before = a.changes_since(0, false);
+        a.import_json(&backup).unwrap();
+        assert_eq!(a.changes_since(0, false), before);
+    }
+
+    #[test]
+    fn erase_all_drops_recalls_waiting_for_their_passage() {
+        let (mut a, _) = device("aaaa", T0);
+        let (mut b, _) = device("bbbb", T0);
+        a.memorise(v(16), v(16), "kjv").unwrap();
+        a.review(v(16), Grade::Good, a.now_s()).unwrap();
+        let mut only_reviews = a.changes_since(0, false);
+        only_reviews.memory.clear();
+        b.merge(&only_reviews, MergeMode::Sync).unwrap();
+        assert_eq!(b.reviews(v(16)).len(), 1);
+        b.erase_all().unwrap();
+        assert!(b.reviews(v(16)).is_empty());
+        assert!(b.changes_since(0, false).memory_reviews.iter().all(|c| c.deleted));
+    }
+
+    #[test]
+    fn a_backup_keeps_recalls_waiting_for_their_passage() {
+        let (mut a, _) = device("aaaa", T0);
+        let (mut b, _) = device("bbbb", T0);
+        a.memorise(v(16), v(16), "kjv").unwrap();
+        a.review(v(16), Grade::Good, a.now_s()).unwrap();
+        let mut only_reviews = a.changes_since(0, false);
+        only_reviews.memory.clear();
+        b.merge(&only_reviews, MergeMode::Sync).unwrap();
+        let backup = b.export_json_with("KJV", |_| None, Include::EVERYTHING).unwrap();
+        let (mut restored, _) = device("cccc", T0);
+        restored.import_json(&backup).unwrap();
+        assert_eq!(restored.reviews(v(16)), a.reviews(v(16)));
+        let notes_only = b.export_json_with("KJV", |_| None, Include::STUDY).unwrap();
+        assert!(!notes_only.contains("waiting_reviews"));
     }
 
     #[test]
