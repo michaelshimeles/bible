@@ -1546,6 +1546,20 @@ impl StudyStore {
         Ok(())
     }
 
+    /// Tombstones the live recalls of the passage at `first` stamped before `stamp`.
+    fn forget_reviews_before(&mut self, first: VerseRef, stamp: &Stamp) -> Result<()> {
+        let reviews = self.reviews.get(&first.key()).cloned().unwrap_or_default();
+        for logged in reviews {
+            let older =
+                self.review_revs.get(&(first.key(), logged.id.clone())).is_none_or(|r| r.rev.stamp < *stamp);
+            if older {
+                let rev = self.next_rev();
+                self.store_review(first, logged, false, rev)?;
+            }
+        }
+        Ok(())
+    }
+
     /// Every recall of the passage that starts at `first`, oldest first.
     pub fn reviews(&self, first: VerseRef) -> Vec<Review> {
         self.reviews.get(&first.key()).map(|v| v.iter().map(|r| r.review).collect()).unwrap_or_default()
@@ -2799,6 +2813,10 @@ impl StudyStore {
         for c in &changes.memory {
             let Some(first) = verse_of(&c.verse) else { continue };
             let k = first.key();
+            if !c.deleted && c.last_verse < first.verse {
+                // A damaged record: skipped before it can touch anything here.
+                continue;
+            }
             let local = self.memory_revs.get(&k).map(|r| (r.stamp.clone(), self.memory.contains_key(&k)));
             // A backup's passage replaces the one here even when this one changed since, so
             // restoring it brings back its range, schedule and log (sync stays newest-wins).
@@ -2878,7 +2896,9 @@ impl StudyStore {
                     self.forget_reviews_matching(first, old_last, &old_tr)?;
                 }
             } else {
-                self.forget_reviews(first)?;
+                // Only recalls from before the deletion: a newer one belongs to a replacement
+                // that may still be on its way.
+                self.forget_reviews_before(first, &c.stamp)?;
             }
             self.store_memorised(first, passage, rev)?;
             report.memory += 1;
@@ -2918,8 +2938,10 @@ impl StudyStore {
                 self.rebuild_memory_from_reviews(first)?;
             } else if self.memory_revs.contains_key(&first.key()) {
                 // A newer forget beat a concurrent review: drop the review so it cannot linger.
-                // Only when we already have a tombstone — not when the passage simply hasn't arrived.
-                self.forget_reviews(first)?;
+                // Only when we already have a tombstone — not when the passage simply hasn't arrived —
+                // and only recalls older than it: a newer one is of a replacement still on its way.
+                let tombstone = self.memory_revs[&first.key()].stamp.clone();
+                self.forget_reviews_before(first, &tombstone)?;
             }
         }
         Ok(report)
@@ -4797,6 +4819,45 @@ mod sync_tests {
         assert_eq!(restored.reviews(v(16)), a.reviews(v(16)));
         let notes_only = b.export_json_with("KJV", |_| None, Include::STUDY).unwrap();
         assert!(!notes_only.contains("waiting_reviews"));
+    }
+
+    #[test]
+    fn a_replacements_recalls_survive_arriving_before_it() {
+        // As above, but A gets C's recall of its new verse 16 before the passage itself.
+        let (mut a, clock_a) = device("aaaa", T0);
+        let (mut b, clock_b) = device("bbbb", T0);
+        let (mut c, clock_c) = device("cccc", T0);
+        a.memorise(v(16), v(18), "kjv").unwrap();
+        sync(&a, &mut b);
+        sync(&a, &mut c);
+        later(&clock_c, 10);
+        c.memorise(v(16), v(16), "kjv").unwrap();
+        c.review(v(16), Grade::Good, c.now_s()).unwrap();
+        later(&clock_b, 20);
+        b.memorise(v(17), v(19), "kjv").unwrap();
+        later(&clock_a, 1_000);
+        sync(&b, &mut a);
+        let mut only_reviews = c.changes_since(0, false);
+        only_reviews.memory.clear();
+        a.merge(&only_reviews, MergeMode::Sync).unwrap();
+        assert_eq!(a.reviews(v(16)).len(), 1, "the recall waits for its passage");
+        sync(&c, &mut a);
+        assert_eq!(a.reviews(v(16)), c.reviews(v(16)));
+        assert_eq!(a.memorised_at(v(16)).unwrap().schedule, c.memorised_at(v(16)).unwrap().schedule);
+    }
+
+    #[test]
+    fn a_damaged_backup_passage_leaves_recalls_alone() {
+        let (mut a, _) = device("aaaa", T0);
+        a.memorise(v(16), v(17), "kjv").unwrap();
+        a.review(v(16), Grade::Good, a.now_s()).unwrap();
+        let backup = a.export_json_with("KJV", |_| None, Include::EVERYTHING).unwrap();
+        let mut doc: serde_json::Value = serde_json::from_str(&backup).unwrap();
+        doc["memory"][0]["last_verse"] = 15.into();
+        doc["memory"][0]["reviews"] = serde_json::json!([]);
+        a.import_json(&doc.to_string()).unwrap();
+        assert_eq!(a.reviews(v(16)).len(), 1);
+        assert_eq!(a.memorised_at(v(16)).unwrap().last, v(17));
     }
 
     #[test]
