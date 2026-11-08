@@ -11,10 +11,12 @@
 		noindex?: boolean;
 	}
 
-	let { title, description, path, crumbs, image, faq, tabTitle, type = 'article', noindex = false }: Props =
+	let { title, ogTitle, description, path, crumbs, image, imageAlt, faq, tabTitle, type = 'article', noindex = false }: Props =
 		$props();
 
 	const url = $derived(`${SITE_URL}${path}`);
+	const card = $derived(ogTitle ?? title);
+	const picture = $derived(`${SITE_URL}${image ?? '/og.jpg'}`);
 	const ld = $derived(jsonLd({ title, description, path, crumbs, faq }));
 </script>
 
@@ -25,12 +27,17 @@
 	<link rel="canonical" href={url} />
 	<meta property="og:type" content={type} />
 	<meta property="og:site_name" content={SITE_NAME} />
-	<meta property="og:title" content={title} />
+	<meta property="og:title" content={card} />
 	<meta property="og:description" content={description} />
 	<meta property="og:url" content={url} />
-	<meta property="og:image" content="{SITE_URL}{image ?? '/og.jpg'}" />
+	<meta property="og:image" content={picture} />
+	<meta property="og:image:width" content="1200" />
+	<meta property="og:image:height" content="630" />
+	{#if imageAlt}<meta property="og:image:alt" content={imageAlt} />{/if}
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content={title} />
+	<meta name="twitter:title" content={card} />
+	<meta name="twitter:image" content={picture} />
+	{#if imageAlt}<meta name="twitter:image:alt" content={imageAlt} />{/if}
 	<meta name="twitter:description" content={description} />
 	<!-- eslint-disable-next-line svelte/no-at-html-tags -->
 	{@html ld}

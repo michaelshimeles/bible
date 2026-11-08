@@ -29,82 +29,106 @@ document.addEventListener('click', function (e) {
 
 <Meta {...data.meta} />
 
-<Frame crumbs={data.meta.crumbs} reader={{ href: data.chapter.href, label: `Read ${data.chapter.label}` }} notice={data.info.copyright}>
-	<article>
-		<header class="head">
-			<h1>{data.label}</h1>
-			<p class="version">{data.info.name} ({data.info.abbrev})</p>
-		</header>
-		<blockquote class="text">
-			{#if data.verse.title}<p class="title">{data.verse.title}</p>{/if}
-			<p><Runs runs={data.verse.runs} /></p>
-		</blockquote>
-		<div class="actions">
-			<a class="button primary" href={data.app}>
-				<Icon name="external" size={16} heavy />
-				Open in Mac app
-			</a>
-			<button type="button" class="button" data-copy={data.copy}>
-				<Icon name="copy" size={16} heavy />
-				<span class="label">Copy</span>
-			</button>
-		</div>
-
-		<section aria-labelledby="context">
-			<h2 id="context">In context</h2>
-			<div class="context">
-				{#each data.context as v (v.number)}
-					<p class:current={v.current} aria-current={v.current || undefined}>
-						{#if v.current}<span class="vn">{v.number}</span>{:else}<a class="vn" href={v.href}>{v.number}</a>{/if}
-						<Runs runs={v.runs} />
-					</p>
-				{/each}
+{#if data.kind === 'licensed'}
+	<Frame crumbs={data.meta.crumbs} reader={{ href: data.chapter.href, label: `Read ${data.chapter.label}` }} notice={data.info.copyright}>
+		<article>
+			<header class="head">
+				<h1>{data.label}</h1>
+				<p class="version">{data.info.name} ({data.info.abbrev})</p>
+			</header>
+			<p class="licensed">The {data.info.abbrev} is read live from its publisher as you read, so its words open in the reader.</p>
+			<div class="actions">
+				<a class="button primary" href={data.chapter.href}>
+					<Icon name="book" size={16} heavy />
+					Read {data.label} in the {data.info.abbrev}
+				</a>
 			</div>
-			<a class="more" href={data.chapter.href}>Read the whole of {data.chapter.label}</a>
-		</section>
+		</article>
+	</Frame>
+{:else}
+	<Frame crumbs={data.meta.crumbs} reader={{ href: data.chapter.href, label: `Read ${data.chapter.label}` }} notice={data.info.copyright}>
+		<article>
+			<header class="head">
+				<h1>{data.label}</h1>
+				<p class="version">{data.info.name} ({data.info.abbrev})</p>
+			</header>
+			<blockquote class="text">
+				{#if data.verses[0].title}<p class="title">{data.verses[0].title}</p>{/if}
+				<p>
+					{#each data.verses as v, i (v.number)}{#if data.verses.length > 1}{#if i}{' '}{/if}<sup class="n">{v.number}</sup
+							>{/if}<Runs runs={v.runs} />{/each}
+				</p>
+			</blockquote>
+			<div class="actions">
+				<a class="button primary" href={data.app}>
+					<Icon name="external" size={16} heavy />
+					Open in Mac app
+				</a>
+				<button type="button" class="button" data-copy={data.copy}>
+					<Icon name="copy" size={16} heavy />
+					<span class="label">Copy</span>
+				</button>
+			</div>
 
-		{#if data.topics.length}
-			<section class="topics" aria-labelledby="topics">
-				<h2 id="topics">Topics</h2>
-				<Capsules links={data.topics} />
+			<section aria-labelledby="context">
+				<h2 id="context">In context</h2>
+				<div class="context">
+					{#each data.context as v (v.number)}
+						<p class:current={v.current} aria-current={v.current || undefined}>
+							{#if v.current}<span class="vn">{v.number}</span>{:else}<a class="vn" href={v.href}>{v.number}</a>{/if}
+							<Runs runs={v.runs} />
+						</p>
+					{/each}
+				</div>
+				<a class="more" href={data.chapter.href}>Read the whole of {data.chapter.label}</a>
 			</section>
-		{/if}
 
-		<nav class="steps" aria-label="Verses">
-			{#if data.prev}
-				<a class="step" href={data.prev.href} rel="prev">
-					<Icon name="chevron-left" size={16} heavy />
-					{data.prev.label}
-				</a>
+			{#if data.topics.length}
+				<section class="topics" aria-labelledby="topics">
+					<h2 id="topics">Topics</h2>
+					<Capsules links={data.topics} />
+				</section>
 			{/if}
-			{#if data.next}
-				<a class="step next" href={data.next.href} rel="next">
-					{data.next.label}
-					<Icon name="chevron-right" size={16} heavy />
-				</a>
-			{/if}
-		</nav>
 
-		<section aria-labelledby="translations">
-			<h2 id="translations">{data.label} in every translation</h2>
-			<dl class="others">
-				{#each data.others as t (t.id)}
-					<div class:current={t.id === data.info.id}>
-						<dt>
-							{#if t.id === data.info.id}<span class="abbrev">{t.abbrev}</span>{:else}<a class="abbrev" href={t.href}
-									>{t.abbrev}</a
-								>{/if}
-							<span class="name">{t.name}</span>
-						</dt>
-						<dd>
-							{#if t.runs}<Runs runs={t.runs} />{:else}<span class="missing">This translation leaves the verse out.</span>{/if}
-						</dd>
-					</div>
-				{/each}
-			</dl>
-		</section>
-	</article>
-</Frame>
+			<nav class="steps" aria-label="Verses">
+				{#if data.prev}
+					<a class="step" href={data.prev.href} rel="prev">
+						<Icon name="chevron-left" size={16} heavy />
+						{data.prev.label}
+					</a>
+				{/if}
+				{#if data.next}
+					<a class="step next" href={data.next.href} rel="next">
+						{data.next.label}
+						<Icon name="chevron-right" size={16} heavy />
+					</a>
+				{/if}
+			</nav>
+
+			<section aria-labelledby="translations">
+				<h2 id="translations">{data.label} in every translation</h2>
+				<dl class="others">
+					{#each data.others as t (t.id)}
+						<div class:current={t.id === data.info.id}>
+							<dt>
+								{#if t.id === data.info.id}<span class="abbrev">{t.abbrev}</span>{:else}<a class="abbrev" href={t.href}
+										>{t.abbrev}</a
+									>{/if}
+								<span class="name">{t.name}</span>
+							</dt>
+							<dd>
+								{#if t.verses.length}{#each t.verses as v, i (v.number)}{#if data.verses.length > 1}{#if i}{' '}{/if}<sup
+												class="n">{v.number}</sup
+											>{/if}<Runs runs={v.runs} />{/each}{:else}<span class="missing">This translation leaves the verse out.</span
+									>{/if}
+							</dd>
+						</div>
+					{/each}
+				</dl>
+			</section>
+		</article>
+	</Frame>
+{/if}
 
 <!-- eslint-disable-next-line svelte/no-at-html-tags -->
 {@html copyScript}
@@ -132,6 +156,21 @@ document.addEventListener('click', function (e) {
 		font-size: 26px;
 		line-height: 1.5;
 		font-variation-settings: 'opsz' 24;
+	}
+
+	.n {
+		margin-right: 3px;
+		color: var(--verse);
+		font: 600 0.5em/1 var(--font-ui);
+		vertical-align: super;
+	}
+
+	.licensed {
+		max-width: 34em;
+		color: var(--ink-2);
+		font: var(--type-snippet);
+		font-size: 18px;
+		line-height: 30px;
 	}
 
 	.text .title {

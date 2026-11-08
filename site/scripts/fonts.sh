@@ -34,6 +34,21 @@ cut "$SRC/Literata-Italic.ttf" literata-italic.woff2 wght=300:600 opsz=12:28
 cut "$SRC/Literata.ttf" literata-heading.woff2 wght=400 opsz=28
 # Inter at its default optical size, as the Mac app's static instances are.
 cut "$SRC/Inter.ttf" inter.woff2 wght=400:700 opsz=14
+# A verse's link-preview image (src/routes/og): TrueType, which its renderer reads, and static cuts.
+OG=src/lib/server/og/fonts
+mkdir -p "$OG"
+ttf() {
+  local src="$1" out="$2"
+  shift 2
+  python3 -m fontTools.varLib.instancer "$src" "$@" -o "$TMP/instance.ttf" --quiet
+  python3 -m fontTools.subset "$TMP/instance.ttf" --unicodes="$UNICODES" --layout-features='*' \
+    --output-file="$OG/$out"
+}
+ttf "$SRC/Literata.ttf" literata-heading.ttf wght=400 opsz=28
+ttf "$SRC/Inter.ttf" inter-medium.ttf wght=500 opsz=14
+ttf "$SRC/Inter.ttf" inter-semibold.ttf wght=600 opsz=14
+cp "$SRC/OFL-Literata.txt" "$OG/OFL-Literata.txt"
+cp "$SRC/OFL-Inter.txt" "$OG/OFL-Inter.txt"
 cp "$SRC/OFL-Literata.txt" "$OUT/OFL-Literata.txt"
 cp "$SRC/OFL-Inter.txt" "$OUT/OFL-Inter.txt"
 

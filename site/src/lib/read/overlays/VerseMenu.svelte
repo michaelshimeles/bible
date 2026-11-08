@@ -85,6 +85,7 @@
 	<MenuSeparator />
 	<MenuItem icon="copy" label="Copy" shortcut={cmdText('C')} onclick={() => run({ type: 'copyText' })} />
 	<MenuItem icon="quote" label="Copy with Reference" shortcut={keys('copy')} onclick={() => run({ type: 'copy' })} />
+	<MenuItem icon="link" label="Copy Link" onclick={() => run({ type: 'copyLink' })} />
 	<MenuItem icon="share" label="Share as Image…" onclick={() => run({ type: 'shareImage' })} />
 	<MenuSeparator />
 	<MenuItem icon="compare" label="Compare Translations" shortcut={keys('compare')} onclick={() => run({ type: 'compare' })} />
