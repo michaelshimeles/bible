@@ -73,12 +73,13 @@ export const load: PageLoad = async ({ params, setHeaders }) => {
 
 	const translations = await Promise.all(c.bundled.map((t) => c.load(t)));
 	const verses = c.verses(id, index);
-	const chosen = new Set(p.verses);
+	// By number: each call to the core makes its verses afresh.
+	const chosen = new Set(p.verses.map((v) => v.number));
 	const near = (v: VerseContent) => ({
 		number: v.number,
 		runs: v.runs,
 		href: versePath(c.books, id, index, v.number),
-		current: chosen.has(v)
+		current: chosen.has(v.number)
 	});
 	const link = (to: { index: number; verse: number } | null) =>
 		to && {

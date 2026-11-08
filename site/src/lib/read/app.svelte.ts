@@ -1199,15 +1199,17 @@ export class ReadApp {
 			case 'copyLink': {
 				// The selection's own page, whose link preview shows the verses (seo/passage.ts). A
 				// translation imported in this browser has no pages: its link is the KJV's.
+				// Words chosen in a parallel column link that column's translation, as Copy does.
 				const refs = this.selectedRefs();
 				if (!this.core || !refs.length) break;
-				const t = this.core.bundled.includes(s.translation) || this.isLive(s.translation) ? s.translation : DEFAULT_TRANSLATION;
+				const id = this.wordSpan()?.translation ?? s.translation;
+				const t = this.core.bundled.includes(id) || this.isLive(id) ? id : DEFAULT_TRANSLATION;
 				const path = passagePath(
 					this.core.books,
 					t,
 					refs.map((r) => ({ index: this.chapterIndex(r), verse: r.verse }))
 				);
-				if (path) void this.#copy(`${SITE_URL}${path}`, t === s.translation ? 'Copied link' : `Copied link to the ${t.toUpperCase()}`);
+				if (path) void this.#copy(`${SITE_URL}${path}`, t === id ? 'Copied link' : `Copied link to the ${t.toUpperCase()}`);
 				break;
 			}
 			case 'openVerseMenu':
