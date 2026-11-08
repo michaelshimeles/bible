@@ -1,4 +1,9 @@
 import type { Handle } from '@sveltejs/kit/hooks';
+import * as bundled from '#lib/read/bundled.js';
+import { serveCoreFiles } from '#lib/read/core.js';
+
+// A verse rendered on request reads the core's files bundled with the server (core.ts).
+serveCoreFiles(bundled);
 
 const reader = (path: string) =>
 	['/read', '/topics', '/ark-of-the-covenant'].some((p) => path === p || path.startsWith(`${p}/`));

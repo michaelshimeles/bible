@@ -484,6 +484,20 @@ also a static page that search engines can index.
   | none (chapters only, before) | 8,327 | 16,712 | 0.6 GB | 18 s |
   | **KJV, BSB, WEB** ✔ | 102,082 | 110,499 | 2.2 GB | about 2 min |
   | all seven | 226,471 | 234,892 | 4.2 GB | about 6 min |
+- **A shared verse's link shows the verse.** Every verse and passage has an address the server
+  sees, `/read/<translation>/<book>/<chapter>/<verse>` or `.../16-18` for verses in one chapter,
+  and the verse menu's **Copy Link** copies it (an imported translation's link is the KJV's). The
+  KJV's, BSB's and WEB's single verses stay prerendered and indexed. Every other one (a passage, a
+  verse of the other four translations or the NLT) is rendered when it's asked for
+  (`prerender = 'auto'`), kept out of search results (`noindex`), so the build and the sitemaps
+  stay as they were. Each carries `og:title` "John 3:16 (KJV)", the verse's exact words as the
+  description (cut at a word with "…" past 300 characters) and an image drawn on request,
+  `/og/<translation>/<book>/<chapter>/<verse>.png` (satori and resvg, in the share card's
+  Literata), which the CDN keeps. The pages rendered on request read the core and the
+  translations through SvelteKit's `read` (`src/lib/read/bundled.ts`). The NLT's words are never
+  put in a page or an image: its verse's page, preview and image name the reference and the
+  translation only, and its button opens the reader at the verse. An address that names no verse
+  is a 404 with the site's own preview.
 - **Topic pages keep references, not text.** Marketing's 50 topics (`site/src/lib/topics/`) list
   each verse by book, chapter and verse; the page takes the KJV and BSB text from the core as it's
   prerendered, so a topic can never quote a verse differently from its verse page. A reference

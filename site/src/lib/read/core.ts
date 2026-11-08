@@ -352,6 +352,23 @@ export const DEFAULT_CHAPTER = 997;
 
 let started: Promise<Core> | undefined;
 
+/** Where the server finds the core's files. */
+export interface CoreFiles {
+	wasmBytes(): Uint8Array | Promise<Uint8Array>;
+	translationBytes(id: string): Uint8Array | Promise<Uint8Array>;
+}
+
+let served: CoreFiles | undefined;
+
+/**
+ * The files a page rendered on request reads (bundled.ts, set by hooks.server.ts). Imported from
+ * there, they're among the server's assets SvelteKit's `read` can open; prerendering reads the
+ * files from disk (node.ts).
+ */
+export function serveCoreFiles(files: CoreFiles) {
+	served = files;
+}
+
 /** The page's one Core, started on first use. */
 export function core(): Promise<Core> {
 	started ??= start();
@@ -360,9 +377,11 @@ export function core(): Promise<Core> {
 
 async function start(): Promise<Core> {
 	if (import.meta.env.SSR) {
-		const node = await import('./node.js');
-		wasm.initSync({ module: node.wasmBytes() });
-		const c = new Core(async (id) => node.translationBytes(id));
+		// Prerendering reads the files from disk; a page rendered on request, the server's copies.
+		const { building } = await import('$app/env');
+		const files: CoreFiles = building || !served ? await import('./node.js') : served;
+		wasm.initSync({ module: await files.wasmBytes() });
+		const c = new Core(async (id) => files.translationBytes(id));
 		const named = Array.from({ length: CHAPTERS }, (_, i) => chapterName(BOOKS, i) === chapterLabel(i));
 		if (JSON.stringify(c.books) !== JSON.stringify(BOOKS) || named.includes(false))
 			throw new Error('books.ts no longer matches the core’s books');

@@ -79,8 +79,12 @@ export interface PageMeta {
 	/** The canonical path, from the site's root. */
 	path: string;
 	crumbs: Crumb[];
+	/** What a link preview leads with, when not the title ("John 3:16 (KJV)"). */
+	ogTitle?: string;
 	/** The link preview's image (1200 x 630), from the site's root; the site's own otherwise. */
 	image?: string;
+	/** The image described, for those who can't see it. */
+	imageAlt?: string;
 	/** The page's questions and answers, shown on it, as a FAQPage too. */
 	faq?: { question: string; answer: string }[];
 }

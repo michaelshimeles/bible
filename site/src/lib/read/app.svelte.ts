@@ -53,6 +53,8 @@ import {
 	type Theme
 } from './settings';
 import { dayStart } from './time';
+import { SITE_URL } from '#lib/config.js';
+import { passagePath } from './seo/verse';
 
 export type Page = 'reader' | 'translations' | 'bookmarks' | 'highlights' | 'notes' | 'history' | 'plans';
 export type SettingsTab = 'reading' | 'appearance' | 'translations' | 'shortcuts' | 'data' | 'about';
@@ -113,6 +115,7 @@ export type Action =
 	| { type: 'clearReading'; since: number }
 	| { type: 'copyText' }
 	| { type: 'copy' }
+	| { type: 'copyLink' }
 	| { type: 'openVerseMenu'; x: number; y: number }
 	| { type: 'shareImage' }
 	| { type: 'compare' }
@@ -1191,6 +1194,20 @@ export class ReadApp {
 				const refs = this.selectedRefs();
 				const text = this.core?.copyText(s.translation, refs, 'reference');
 				if (refs.length && text) void this.#copy(text, 'Copied with reference');
+				break;
+			}
+			case 'copyLink': {
+				// The selection's own page, whose link preview shows the verses (seo/passage.ts). A
+				// translation imported in this browser has no pages: its link is the KJV's.
+				const refs = this.selectedRefs();
+				if (!this.core || !refs.length) break;
+				const t = this.core.bundled.includes(s.translation) || this.isLive(s.translation) ? s.translation : DEFAULT_TRANSLATION;
+				const path = passagePath(
+					this.core.books,
+					t,
+					refs.map((r) => ({ index: this.chapterIndex(r), verse: r.verse }))
+				);
+				if (path) void this.#copy(`${SITE_URL}${path}`, t === s.translation ? 'Copied link' : `Copied link to the ${t.toUpperCase()}`);
 				break;
 			}
 			case 'openVerseMenu':

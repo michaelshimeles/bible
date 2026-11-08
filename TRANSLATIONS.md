@@ -29,7 +29,8 @@ site refuses whole books and passages that cross chapters, and each IP address c
 chapters a minute and 300 a day. Tyndale receives only the passage, from the site's server.
 Vercel's servers keep a chapter for a day, but nothing from a one-chapter book (Jude, say). The browser keeps only the
 chapter on screen, in memory. The reader stores none of it, the offline cache skips it, and the
-site's pages, sitemaps and link previews never contain it. Tyndale's credit line is under the chapter, linked to
+site's pages, sitemaps and link previews never contain it. An NLT verse's link (`/read/nlt/john/3/16`) previews the reference and
+the translation's name only, in its text and its image. Tyndale's credit line is under the chapter, linked to
 [newlivingtranslation.com](https://www.newlivingtranslation.com). Highlights, notes and bookmarks
 work as in other translations, but a highlight of some words colours the whole verse, so that no
 NLT text is saved with it.
